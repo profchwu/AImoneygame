@@ -1,5 +1,6 @@
 import * as T from 'three';
 import {mergeGeometries} from './BufferGeometryUtils.js';
+import {GLTFLoader} from './GLTFLoader.js';
 import {roomObstacles,stations,EXIT,LENGTH,ALTAR} from './world.js?v=5';
 
 // One world, one camera and one depth buffer: props, characters and shadows
@@ -7,13 +8,13 @@ import {roomObstacles,stations,EXIT,LENGTH,ALTAR} from './world.js?v=5';
 export class CinematicStage{
  constructor(canvas){
   this.canvas=canvas;this.renderer=new T.WebGLRenderer({canvas,antialias:true,alpha:false});
-  this.renderer.setPixelRatio(Math.min(devicePixelRatio,1));this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=T.PCFSoftShadowMap;
+  this.renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=T.PCFSoftShadowMap;
   this.renderer.outputColorSpace=T.SRGBColorSpace;this.renderer.toneMapping=T.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.35;
   this.scene=new T.Scene();this.scene.background=new T.Color('#101b25');this.scene.fog=new T.Fog('#101b25',20,48);
   this.camera=new T.PerspectiveCamera(43,1,.1,80);this.lastX=1;this.face=-Math.PI/2;
   this.materials={};this.rooms=[];this.doors=[];this.gates=[];this.markers=[];this.keys=[];
-  this.scene.add(new T.HemisphereLight(0xb9d9f3,0x302315,1.65));
-  this.moon=new T.DirectionalLight(0x8eb9eb,2.1);this.moon.position.set(9,9,-4);this.scene.add(this.moon);
+  this.scene.add(new T.HemisphereLight(0x9bb5cc,0x28201c,.8));
+  this.moon=new T.DirectionalLight(0x8eb9eb,1.2);this.moon.position.set(9,9,-4);this.scene.add(this.moon);
   this.keyLight=new T.SpotLight(0xffd39a,95,24,.65,.65,1.6);this.keyLight.castShadow=true;this.keyLight.shadow.mapSize.set(2048,2048);this.keyLight.shadow.bias=-.0004;this.keyLight.shadow.normalBias=.025;this.scene.add(this.keyLight,this.keyLight.target);
   this.rim=new T.PointLight(0x9ccfff,12,13,2);this.scene.add(this.rim);
  }
@@ -25,7 +26,22 @@ export class CinematicStage{
   const texture=new T.CanvasTexture(canvas);texture.colorSpace=T.SRGBColorSpace;texture.wrapS=texture.wrapT=T.RepeatWrapping;texture.anisotropy=4;
   return this.materials[name]=new T.MeshStandardMaterial({color:0xffffff,map:texture,bumpMap:texture,bumpScale:kind==='wood'?.006:.012,roughness:metal?.42:.82,metalness:metal});
  }
- box(parent,x,y,z,w,h,d,mat){const m=new T.Mesh(new T.BoxGeometry(w,h,d),mat);m.position.set(x,y,z);m.castShadow=m.receiveShadow=true;parent.add(m);return m;}
+ wovenRug(){
+  const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=512;const c=canvas.getContext('2d');c.fillStyle='#392321';c.fillRect(0,0,1024,512);
+  for(const [inset,color,width] of [[12,'#9a805a',5],[25,'#203e40',15],[40,'#af9062',3],[58,'#796448',2]]){c.strokeStyle=color;c.lineWidth=width;c.strokeRect(inset,inset,1024-2*inset,512-2*inset);}
+  const flower=(x,y,r)=>{c.save();c.translate(x,y);for(let i=0;i<8;i++){c.rotate(Math.PI/4);c.fillStyle=i%2?'#82734f':'#40615c';c.beginPath();c.ellipse(r*.45,0,r*.5,r*.16,0,0,7);c.fill();}c.fillStyle='#b2996c';c.beginPath();c.arc(0,0,r*.17,0,7);c.fill();c.restore();};
+  for(let x=85;x<960;x+=80)for(let y=88;y<440;y+=65)flower(x+(Math.floor(y/65)%2)*25,y,22);
+  for(let x=30;x<1000;x+=26){flower(x,26,9);flower(x,486,9);}for(let y=54;y<480;y+=26){flower(26,y,9);flower(998,y,9);}
+  for(let i=0;i<512;i++){c.fillStyle=i%2?'#dfc58c0b':'#0808071c';c.fillRect(0,i,1024,1);}const map=new T.CanvasTexture(canvas);map.colorSpace=T.SRGBColorSpace;map.anisotropy=4;map.wrapS=map.wrapT=T.RepeatWrapping;map.repeat.set(4,4);return map;
+ }
+ box(parent,x,y,z,w,h,d,mat){
+  let geometry;
+  if(Math.min(w,h,d)>.09&&Math.max(w,h,d)<3.5){
+   const bevel=Math.min(.025,Math.min(w,h,d)*.12),shape=new T.Shape();shape.moveTo(-w/2+bevel,-h/2+bevel);shape.lineTo(w/2-bevel,-h/2+bevel);shape.lineTo(w/2-bevel,h/2-bevel);shape.lineTo(-w/2+bevel,h/2-bevel);shape.closePath();
+   geometry=new T.ExtrudeGeometry(shape,{depth:d-2*bevel,bevelEnabled:true,bevelSize:bevel,bevelThickness:bevel,bevelSegments:2,steps:1});geometry.translate(0,0,-d/2+bevel);
+  }else geometry=new T.BoxGeometry(w,h,d);
+  const m=new T.Mesh(geometry,mat);m.position.set(x,y,z);m.castShadow=m.receiveShadow=true;parent.add(m);return m;
+ }
  sphere(parent,x,y,z,r,mat,scale=[1,1,1]){const m=new T.Mesh(new T.SphereGeometry(r,16,12),mat);m.position.set(x,y,z);m.scale.set(...scale);m.castShadow=m.receiveShadow=true;parent.add(m);return m;}
  rod(parent,a,b,r,mat){const va=new T.Vector3(...a),vb=new T.Vector3(...b),m=new T.Mesh(new T.CylinderGeometry(r,r,va.distanceTo(vb),10),mat);m.position.copy(va).add(vb).multiplyScalar(.5);m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),vb.sub(va).normalize());m.castShadow=true;parent.add(m);return m;}
  label(parent,text,x,y,z){const cv=document.createElement('canvas');cv.width=512;cv.height=96;const c=cv.getContext('2d');c.fillStyle='#132128ee';c.fillRect(0,0,512,96);c.strokeStyle='#bca478';c.strokeRect(3,3,506,90);c.fillStyle='#f4e2bb';c.font='28px Microsoft JhengHei';c.textAlign='center';c.fillText(text,256,60);const map=new T.CanvasTexture(cv);map.colorSpace=T.SRGBColorSpace;const mesh=new T.Mesh(new T.PlaneGeometry(2.0,.375),new T.MeshBasicMaterial({map,transparent:true,depthWrite:false}));mesh.position.set(x,y,z);parent.add(mesh);return mesh;}
@@ -33,25 +49,14 @@ export class CinematicStage{
   const room=new T.Group();this.scene.add(room);this.rooms.push(room);this.gates[level]=[];this.markers[level]=[];
   const oak=this.material('oak','#65503a'),dark=this.material('trim','#302d27'),iron=this.material('iron','#253b41','plaster',.65),brass=this.material('brass','#9c773a','wood',.7),plaster=this.material('plaster','#45565b','plaster'),green=this.material('leaves','#385b3b','plaster'),clay=this.material('clay','#784934','plaster');
   this.box(room,17,-.13,1,36,.3,9,dark);
-  // Actual individual floorboards and staggered joints create perspective.
-  for(let row=0;row<15;row++)for(let col=-2;col<13;col++){this.box(room,col*3+(row%2)*1.5-1,.035,row*.46-2.2,2.975,.045,.445,oak);}
-  if(!level)this.box(room,17,2.7,-1.75,36,5.4,.3,plaster);
-  else{
-   const glass=new T.MeshStandardMaterial({color:0x31556c,roughness:.3,metalness:.22,emissive:0x102b3b,emissiveIntensity:.4});
-   this.box(room,17,3,-1.8,36,6,.15,glass);
-   for(let x=0;x<=34;x+=2){this.box(room,x,3,-1.65,.08,6,.13,iron);this.rod(room,[x,5.7,-1.7],[x,7,1.5],.06,iron);this.rod(room,[x,7,1.5],[x,5.7,5],.06,iron);}
-   for(const y of [1.8,3.3,4.8])this.box(room,17,y,-1.55,36,.08,.12,iron);
-  }
-  for(let x=0;x<35;x+=4){
-   this.box(room,x,2.5,-1.25,.22,5,.35,level?iron:dark);this.box(room,x,.17,-1.05,.35,.34,.6,dark);
-   if(!level){
-    const pane=new T.MeshStandardMaterial({color:0x335271,emissive:0x173553,roughness:.45});this.box(room,x+2,3.35,-1.48,1.85,2.5,.12,dark);this.box(room,x+2,3.35,-1.38,1.62,2.3,.08,pane);this.box(room,x+2,3.35,-1.27,.06,2.3,.1,iron);this.box(room,x+2,3.35,-1.27,1.62,.06,.1,iron);
-   }
-   // Cabinetry and obstacles share this exact oak/brass material family.
-   const sx=x+.65;this.box(room,sx,1.2,-.9,1.3,2.4,.48,dark);
-   for(let shelf=0;shelf<4;shelf++){this.box(room,sx,.2+shelf*.6,-.5,1.4,.07,.8,oak);for(let b=0;b<5;b++){const color=['#5b6c60','#765045','#9a8968','#37474d','#6b5e64'][b];const bm=this.material('book'+b,color,'cloth');this.box(room,sx-.48+b*.23,.44+shelf*.6,-.42,.15,.35+(b%3)*.05,.25,bm);}}
-   const lampx=x+2.7;this.rod(room,[lampx,0,-.6],[lampx,2.7,-.6],.035,brass);this.box(room,lampx,2.65,-.6,.34,.45,.32,iron);const glow=new T.MeshStandardMaterial({color:0xffe5b4,emissive:0xffb85e,emissiveIntensity:2});this.box(room,lampx,2.65,-.40,.25,.32,.04,glow);const light=new T.PointLight(0xffbc75,7,5,2);light.position.set(lampx,2.7,-.1);
-   if(level)for(let p=0;p<3;p++){const px=x+p*.7;const pot=new T.Mesh(new T.CylinderGeometry(.2,.13,.35,12),clay);pot.position.set(px,.22,0);room.add(pot);this.rod(room,[px,.3,0],[px,1.5,0],.018,green);for(let j=0;j<6;j++){const angle=j*2.4;this.sphere(room,px+Math.cos(angle)*.20,.5+j*.15,Math.sin(angle)*.15,.13,green,[1.6,.3,1]);}}
+  room.add(this.detailedRooms[level]);
+  const floor=this.box(room,17,.035,1.4,40,.045,9,this.materials.floor);
+  const floorUV=floor.geometry.attributes.uv;for(let i=0;i<floorUV.count;i++){floorUV.setXY(i,floorUV.getX(i)*10,floorUV.getY(i)*2.25);}floorUV.needsUpdate=true;
+  // Warm pools from standing brass lamps; cool window fill preserves depth.
+  for(const x of [3.2,11.2,19.2,27.2]){
+   const light=new T.PointLight(0xffbb70,16,7,2);light.position.set(x,2.0,.5);room.add(light);
+   const wallLight=new T.SpotLight(0xffbc75,40,9,.78,.65,1.4);wallLight.position.set(x,2,.5);wallLight.target.position.set(x+2.0,2.4,-2.35);room.add(wallLight,wallLight.target);
+   const beam=new T.Mesh(new T.ConeGeometry(1.2,3.6,24,1,true),new T.MeshBasicMaterial({color:0xffce8d,transparent:true,opacity:.035,depthWrite:false,side:T.DoubleSide}));beam.position.set(x+1,1.5,-.6);beam.rotation.z=Math.PI/2;room.add(beam);
   }
   for(const o of roomObstacles(level)){
    const x=(o.x0+o.x1)/2,z=(o.z0+o.z1)/2,w=o.x1-o.x0,d=o.z1-o.z0,h=o.height;
@@ -69,7 +74,7 @@ export class CinematicStage{
    for(let z=-1.0;z<=1.01;z+=.25)this.box(gate,0,1.35,z,.065,2.7,.065,brass);this.box(gate,0,2.65,0,.13,.12,2.3,iron);this.gates[level].push(gate);
   }
   // Batch stationary meshes by material; moving doors, gates and markers remain separate.
-  const groups=new Map();room.updateMatrixWorld(true);for(const child of [...room.children]){if(child.isMesh&&child.geometry.type!=='PlaneGeometry'&&!this.markers[level].includes(child)){const geometry=child.geometry.clone().applyMatrix4(child.matrix);const list=groups.get(child.material)||[];list.push(geometry);groups.set(child.material,list);room.remove(child);}}
+  const groups=new Map();room.updateMatrixWorld(true);for(const child of [...room.children]){if(child.isMesh&&child.geometry.type!=='PlaneGeometry'&&!this.markers[level].includes(child)){let geometry=child.geometry.clone().applyMatrix4(child.matrix);if(geometry.index)geometry=geometry.toNonIndexed();const list=groups.get(child.material)||[];list.push(geometry);groups.set(child.material,list);room.remove(child);}}
   for(const [material,geometries] of groups){const mesh=new T.Mesh(mergeGeometries(geometries),material);mesh.castShadow=mesh.receiveShadow=true;room.add(mesh);for(const geometry of geometries)geometry.dispose();}
   this.box(room,ALTAR,.45,.1,1.4,.8,.7,dark);this.box(room,ALTAR,.87,.1,1.5,.08,.8,brass);
   const key=new T.Group();key.position.set(ALTAR,1.5,.1);const ring=new T.Mesh(new T.TorusGeometry(.13,.035,8,20),brass);key.add(ring);this.box(key,0,-.24,0,.055,.3,.06,brass);this.box(key,.06,-.33,0,.15,.05,.06,brass);room.add(key);this.keys[level]=key;this.label(room,'KEY 寶箱 · E',ALTAR,2,.1);
@@ -77,6 +82,20 @@ export class CinematicStage{
   for(const x of [EXIT-.85,EXIT+.85])this.box(room,x,1.5,.1,.15,3.0,.4,dark);this.box(room,EXIT,3,.1,1.85,.15,.4,dark);this.label(room,level?'回家的門 · E':'月光溫室 · E',EXIT,3.4,.1);
  }
  async load(progress){
+  const loader=new GLTFLoader();
+  const rugMap=this.wovenRug();
+  this.detailedRooms=await Promise.all([0,1].map(async level=>{const gltf=await loader.loadAsync(new URL(`./reference-room-${level}.glb?v=8`,import.meta.url).href);gltf.scene.traverse(o=>{if(o.isMesh){o.castShadow=o.receiveShadow=true;for(const m of (Array.isArray(o.material)?o.material:[o.material])){
+   if(/Honey oak/.test(m.name))m.color.set(0x75817f);
+   if(/Walnut/.test(m.name))m.color.set(0x56635f);
+   if(/Dusty rose|Sage|Ivory linen|Knitted teal|Rust corduroy|Paper/.test(m.name))m.color.multiplyScalar(.65);
+   if(/Woven lavender/.test(m.name)){m.map=rugMap;m.color.set(0xffffff);m.roughness=1;}
+   if(/Lamp lens/.test(m.name)){m.emissive.set(0xffb95b);m.emissiveIntensity=2;}
+  }}});return gltf.scene;}));
+  const textures=new T.TextureLoader();
+  for(const [name,asset,color] of [['oak','wood_cabinet_worn_long',0xa99780],['trim','wood_cabinet_worn_long',0x504339],['floor','old_wood_floor',0x93806a]]){
+   const maps=await Promise.all(['diff','normal','rough'].map(async channel=>{const map=await textures.loadAsync(new URL(`./${asset}-${channel}.jpg`,import.meta.url).href);map.wrapS=map.wrapT=T.RepeatWrapping;map.anisotropy=4;if(channel==='diff')map.colorSpace=T.SRGBColorSpace;return map;}));
+   this.materials[name]=new T.MeshStandardMaterial({color,map:maps[0],normalMap:maps[1],normalScale:new T.Vector2(.65,.65),roughnessMap:maps[2],roughness:.85});
+  }
   this.makeRoom(0);this.makeRoom(1);
   // Preserve the approved knitted-cloak character, in the world's depth buffer.
   // Cutout alpha (not blending) keeps boots opaque behind glass and in fog.
@@ -119,8 +138,8 @@ export class CinematicStage{
   this.child.model.rotation.y=0;
   this.contact.position.set(this.child.model.position.x,.067,this.child.model.position.z);this.contact.material.opacity=Math.max(.12,1-Math.max(0,player.position.y-.06)*.65);
   this.canvas.dataset.character='original-knit-cloak';this.canvas.dataset.walkFrame=walking?String(frame):'idle';this.canvas.dataset.facing=direction>0?'right':'left';
-  const enemyDirection=warden.position.x<px?1:-1;
-  const enemyFrame=reduced?1:Math.floor((warden.userData.walkDistance||0)*4)%6;
+  const enemyDirection=warden.userData.facing||1;
+  const enemyFrame=reduced?1:Math.floor((warden.userData.walkDistance||0)*2.8)%6;
   const ew=2172/6,eh=608,enemyHeight=2.85,es=enemyHeight/eh,ep=this.enemy.portrait;
   ep.scale.set(ew*es,enemyHeight,1);ep.position.set(0,enemyHeight/2,0);
   // The source patrol sheet faces LEFT; the hero sheet faces RIGHT.

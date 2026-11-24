@@ -1,0 +1,8 @@
+PBR surfaces downloaded from the official Poly Haven asset API (2026-11-24).
+Assets are CC0: https://polyhaven.com/license
+Blue Plaster Weathered: https://polyhaven.com/a/blue_plaster_weathered
+Wood Cabinet Worn Long: https://polyhaven.com/a/wood_cabinet_worn_long
+Old Wood Floor: https://polyhaven.com/a/old_wood_floor
+Included channels: diffuse/color, OpenGL normal, roughness (1k JPEG).
+Blender scenery: tools/build_reference_rooms.py and source_models/reference-room-*.blend.
+Original character imagery retained from this project's approved artwork.

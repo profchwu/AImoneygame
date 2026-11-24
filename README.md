@@ -11,3 +11,7 @@
 不使用外部 CDN、登入或後端；紀錄存在本機瀏覽器 wish-house-finance-v5，舊版紀錄不刪除。所有教學金額都是虛構模擬，不是投資建議。Three.js 採 MIT 授權。
 
 本機：node web/serve.mjs。測試：node --test web/tests/*.test.mjs。發布：python tools/package_web.py，將 builds/github-pages 檔案上傳 GitHub main 根目錄，Pages 自動部署。Netlify 也可直接使用同一資料夾，無建置指令。退版可在 GitHub 恢復上一個發布 commit 0a5e060。
+
+
+v8：Blender 重建兩個房間（source_models/reference-room-0.blend、reference-room-1.blend），採用 Poly Haven CC0 斑駁牆面與舊木材 PBR 貼圖、立體拱窗與書櫃、黃銅立燈、編織地毯。環境為真 3D，主角與巡夜者仍保留原圖像動畫。此版本向示意圖的材質與冷暖配色靠近，並非逐像素重現。
+巡夜者追逐速度由 2.5 降為 1.55、巡邏由 1.4 降為 0.85；轉向需持續 0.65 秒，抵達目標 0.5 單位範圍內不翻轉，巡邏採固定端點。26 項回歸測試通過。材質來源詳見 ART-LICENSES.txt。
