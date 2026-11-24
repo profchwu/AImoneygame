@@ -83,7 +83,17 @@ export class CinematicStage{
  }
  async load(progress){
   this.makeRoom(0);this.makeRoom(1);const loader=new GLTFLoader();
-  const child=await loader.loadAsync(new URL('./child.glb?v=5',import.meta.url).href);this.child=this.rig(child.scene);this.scene.add(child.scene);progress(1);
+  // Preserve the approved knitted-cloak character, in the world's depth buffer.
+  // Cutout alpha (not blending) keeps boots opaque behind glass and in fog.
+  const atlas=await new T.TextureLoader().loadAsync(new URL('./child-walk.png?v=6',import.meta.url).href);
+  atlas.colorSpace=T.SRGBColorSpace;atlas.magFilter=T.LinearFilter;atlas.minFilter=T.LinearFilter;atlas.generateMipmaps=false;
+  const material=new T.MeshBasicMaterial({map:atlas,alphaTest:.5,alphaToCoverage:true,side:T.DoubleSide,toneMapped:false,color:0xe4e8e9});
+  const model=new T.Group(),portrait=new T.Mesh(new T.PlaneGeometry(1,1),material);model.add(portrait);portrait.castShadow=true;
+  portrait.customDepthMaterial=new T.MeshDepthMaterial({depthPacking:T.RGBADepthPacking,map:atlas,alphaTest:.5,side:T.DoubleSide});
+  const idle=await new T.TextureLoader().loadAsync(new URL('./child-cinematic.png?v=6',import.meta.url).href);idle.colorSpace=T.SRGBColorSpace;
+  this.child={model,portrait,atlas,idle};this.scene.add(model);
+  const cv=document.createElement('canvas');cv.width=cv.height=64;const context=cv.getContext('2d'),gradient=context.createRadialGradient(32,32,0,32,32,32);gradient.addColorStop(0,'rgba(0,0,0,.48)');gradient.addColorStop(1,'rgba(0,0,0,0)');context.fillStyle=gradient;context.fillRect(0,0,64,64);
+  this.contact=new T.Mesh(new T.PlaneGeometry(.85,.48),new T.MeshBasicMaterial({map:new T.CanvasTexture(cv),transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1}));this.contact.rotation.x=-Math.PI/2;this.scene.add(this.contact);progress(1);
   const enemy=await loader.loadAsync(new URL('./warden3d.glb?v=5',import.meta.url).href);this.enemy=this.rig(enemy.scene,true);this.scene.add(enemy.scene);progress(2);this.resize();
  }
  floorPoint(x,y){const ray=new T.Raycaster();ray.setFromCamera(new T.Vector2(x/innerWidth*2-1,-y/innerHeight*2+1),this.camera);const point=new T.Vector3();if(!ray.ray.intersectPlane(new T.Plane(new T.Vector3(0,1,0),-.06),point))return null;point.x=T.MathUtils.clamp(point.x,.5,LENGTH);point.z=T.MathUtils.clamp(point.z,.9,3.1);return point;}
@@ -95,8 +105,20 @@ export class CinematicStage{
   this.keyLight.position.set(px-2,5.7,4);this.keyLight.target.position.set(px+1,0,1.6);this.rim.position.set(px+2,3,-1);
   const delta=player.position.x-this.lastX;if(Math.abs(delta)>.001)this.face=delta>0?-Math.PI/2:Math.PI/2;this.lastX=player.position.x;
   const animate=(rig,body,phase,moving,angle)=>{rig.model.position.copy(body.position);rig.model.scale.y=body.scale.y;rig.model.rotation.y=angle;rig.legs.forEach((leg,i)=>leg.rotation.x=moving&&!paused&&!reduced?Math.sin(phase+i*Math.PI)*.45:0);};
-  animate(this.child,player,(player.userData.walkDistance||0)*7,active<0&&player.userData.walking&&player.userData.grounded,this.face);
+  const walking=started&&!paused&&!reduced&&active<0&&player.userData.walking&&player.userData.grounded;
+  const frame=walking?Math.floor((player.userData.walkDistance||0)*5)%6:1;
+  const edges=[0,400,722,1074,1492,1805,2172],anchors=[180,545,903,1268,1630,1985];
+  const left=edges[frame],right=edges[frame+1],height=1.86,scale=height/674,direction=this.face<0?1:-1;
+  const portrait=this.child.portrait;portrait.scale.set((right-left)*scale,height,1);portrait.position.set(((left+right)/2-anchors[frame])*scale*direction,height/2,0);
+  const uv=portrait.geometry.attributes.uv,u0=(direction>0?left:right)/2172,u1=(direction>0?right:left)/2172;
+  uv.setXY(0,u0,1-22/724);uv.setXY(1,u1,1-22/724);uv.setXY(2,u0,1-696/724);uv.setXY(3,u1,1-696/724);uv.needsUpdate=true;
+  const map=walking?this.child.atlas:this.child.idle;portrait.material.map=map;portrait.customDepthMaterial.map=map;
+  if(!walking){portrait.scale.set(height*this.child.idle.image.width/this.child.idle.image.height,height,1);portrait.position.x=0;uv.setXY(0,direction>0?0:1,1);uv.setXY(1,direction>0?1:0,1);uv.setXY(2,direction>0?0:1,0);uv.setXY(3,direction>0?1:0,0);}
+  this.child.model.position.copy(player.position);this.child.model.scale.y=player.scale.y;
   if(!started)this.child.model.position.set(4,.06,2);
+  this.child.model.rotation.y=Math.atan2(this.camera.position.x-this.child.model.position.x,this.camera.position.z-this.child.model.position.z);
+  this.contact.position.set(this.child.model.position.x,.067,this.child.model.position.z);this.contact.material.opacity=Math.max(.12,1-Math.max(0,player.position.y-.06)*.65);
+  this.canvas.dataset.character='original-knit-cloak';this.canvas.dataset.walkFrame=walking?String(frame):'idle';this.canvas.dataset.facing=direction>0?'right':'left';
   animate(this.enemy,warden,(warden.userData.walkDistance||0)*5,started,warden.position.x<px?-Math.PI/2:Math.PI/2);this.enemy.model.visible=started;
   for(let i=0;i<3;i++){const done=state.clues[level][i];this.gates[level][i].position.y=done?3:0;this.markers[level][i].material.color.set(done?0x7ee6a5:0xffc568);this.markers[level][i].material.emissive.set(done?0x30a060:0xffa640);}
   this.doors[level].rotation.y=-Math.min(1,doorTime/.95)*Math.PI*.55;this.keys[level].visible=!state.keys[level];this.keys[level].rotation.y=reduced?0:time;

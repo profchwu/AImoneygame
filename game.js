@@ -2,7 +2,7 @@ import {designs,createMechanism,moveCoin,mechanismView,testMechanism} from './me
 import {LENGTH,EXIT,ALTAR,stations,solved,doorReady,answerStation,enterDoor,roomObstacles,worldSolids} from './world.js?v=5';
 import * as THREE from 'three';
 import {stepBody,FLOOR} from './physics.js?v=5';
-import {CinematicStage} from './stage3d.js?v=5';
+import {CinematicStage} from './stage3d.js?v=6';
 import {centers,names,items,fresh,budget,finance,evaluate,submit,canOpen,hint,restore} from './core.js?v=5';
 
 const $=id=>document.getElementById(id);
