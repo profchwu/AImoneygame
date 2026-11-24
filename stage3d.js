@@ -1,6 +1,5 @@
 import * as T from 'three';
 import {mergeGeometries} from './BufferGeometryUtils.js';
-import {GLTFLoader} from './GLTFLoader.js';
 import {roomObstacles,stations,EXIT,LENGTH,ALTAR} from './world.js?v=5';
 
 // One world, one camera and one depth buffer: props, characters and shadows
@@ -77,12 +76,8 @@ export class CinematicStage{
   const door=new T.Group();door.position.set(EXIT-.7,.06,.1);room.add(door);this.box(door,.7,1.4,0,1.4,2.8,.15,oak);for(const y of [.65,2])this.box(door,.7,y,.1,1.1,.9,.07,dark);this.sphere(door,1.2,1.2,.19,.07,brass);this.doors[level]=door;
   for(const x of [EXIT-.85,EXIT+.85])this.box(room,x,1.5,.1,.15,3.0,.4,dark);this.box(room,EXIT,3,.1,1.85,.15,.4,dark);this.label(room,level?'回家的門 · E':'月光溫室 · E',EXIT,3.4,.1);
  }
- rig(model,monster=false){
-  model.updateMatrixWorld(true);const parts=[[],[]];model.traverse(o=>{if(o.isMesh){o.castShadow=o.receiveShadow=true;for(const m of (Array.isArray(o.material)?o.material:[o.material])){m.transparent=false;m.opacity=1;m.depthWrite=true;}if(/boot|trouser|warden_leg/.test(o.name)){const p=new T.Vector3();o.getWorldPosition(p);parts[p.x<0?0:1].push(o);}}});
-  const legs=parts.map((objects,i)=>{const pivot=new T.Group();pivot.position.set(i? .17:-.17,monster?.95:.7,0);model.add(pivot);model.updateMatrixWorld(true);for(const object of objects)pivot.attach(object);return pivot;});return {model,legs};
- }
  async load(progress){
-  this.makeRoom(0);this.makeRoom(1);const loader=new GLTFLoader();
+  this.makeRoom(0);this.makeRoom(1);
   // Preserve the approved knitted-cloak character, in the world's depth buffer.
   // Cutout alpha (not blending) keeps boots opaque behind glass and in fog.
   const atlas=await new T.TextureLoader().loadAsync(new URL('./child-walk.png?v=6',import.meta.url).href);
@@ -94,17 +89,22 @@ export class CinematicStage{
   this.child={model,portrait,atlas,idle};this.scene.add(model);
   const cv=document.createElement('canvas');cv.width=cv.height=64;const context=cv.getContext('2d'),gradient=context.createRadialGradient(32,32,0,32,32,32);gradient.addColorStop(0,'rgba(0,0,0,.48)');gradient.addColorStop(1,'rgba(0,0,0,0)');context.fillStyle=gradient;context.fillRect(0,0,64,64);
   this.contact=new T.Mesh(new T.PlaneGeometry(.85,.48),new T.MeshBasicMaterial({map:new T.CanvasTexture(cv),transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1}));this.contact.rotation.x=-Math.PI/2;this.scene.add(this.contact);progress(1);
-  const enemy=await loader.loadAsync(new URL('./warden3d.glb?v=5',import.meta.url).href);this.enemy=this.rig(enemy.scene,true);this.scene.add(enemy.scene);progress(2);this.resize();
+  const enemyAtlas=await new T.TextureLoader().loadAsync(new URL('./warden-walk.png?v=7',import.meta.url).href);enemyAtlas.colorSpace=T.SRGBColorSpace;enemyAtlas.minFilter=T.LinearFilter;enemyAtlas.generateMipmaps=false;
+  const enemyMaterial=material.clone();enemyMaterial.map=enemyAtlas;
+  const enemyModel=new T.Group(),enemyPortrait=new T.Mesh(new T.PlaneGeometry(1,1),enemyMaterial);enemyPortrait.castShadow=true;enemyPortrait.customDepthMaterial=new T.MeshDepthMaterial({depthPacking:T.RGBADepthPacking,map:enemyAtlas,alphaTest:.5,side:T.DoubleSide});enemyModel.add(enemyPortrait);this.scene.add(enemyModel);this.enemy={model:enemyModel,portrait:enemyPortrait};
+  this.enemyContact=this.contact.clone();this.enemyContact.material=this.contact.material.clone();this.enemyContact.scale.set(1.4,1.4,1);this.scene.add(this.enemyContact);progress(2);this.resize();
  }
  floorPoint(x,y){const ray=new T.Raycaster();ray.setFromCamera(new T.Vector2(x/innerWidth*2-1,-y/innerHeight*2+1),this.camera);const point=new T.Vector3();if(!ray.ray.intersectPlane(new T.Plane(new T.Vector3(0,1,0),-.06),point))return null;point.x=T.MathUtils.clamp(point.x,.5,LENGTH);point.z=T.MathUtils.clamp(point.z,.9,3.1);return point;}
  resize(){this.renderer.setSize(innerWidth,innerHeight,false);this.camera.aspect=innerWidth/innerHeight;this.camera.updateProjectionMatrix();}
  draw({player,warden,state,time,active,started,paused,reduced,doorTime=0}){
   const level=state.stage||0;this.rooms.forEach((r,i)=>r.visible=i===level);
   const px=started?player.position.x:4,cx=Math.max(2.8,Math.min(29,px+1.9));
-  this.camera.position.set(cx+1,4.2,10.4);this.camera.lookAt(cx,1.55,1.15);
+  // A shared side-on camera, with only a shallow downward pitch for lane depth.
+  // Never rotate individual portraits toward the camera: that twists their feet
+  // away from the world's walking axis and gives each actor a different view.
+  this.camera.position.set(cx,2.8,11.4);this.camera.lookAt(cx,1.55,1.15);
   this.keyLight.position.set(px-2,5.7,4);this.keyLight.target.position.set(px+1,0,1.6);this.rim.position.set(px+2,3,-1);
   const delta=player.position.x-this.lastX;if(Math.abs(delta)>.001)this.face=delta>0?-Math.PI/2:Math.PI/2;this.lastX=player.position.x;
-  const animate=(rig,body,phase,moving,angle)=>{rig.model.position.copy(body.position);rig.model.scale.y=body.scale.y;rig.model.rotation.y=angle;rig.legs.forEach((leg,i)=>leg.rotation.x=moving&&!paused&&!reduced?Math.sin(phase+i*Math.PI)*.45:0);};
   const walking=started&&!paused&&!reduced&&active<0&&player.userData.walking&&player.userData.grounded;
   const frame=walking?Math.floor((player.userData.walkDistance||0)*5)%6:1;
   const edges=[0,400,722,1074,1492,1805,2172],anchors=[180,545,903,1268,1630,1985];
@@ -116,10 +116,20 @@ export class CinematicStage{
   if(!walking){portrait.scale.set(height*this.child.idle.image.width/this.child.idle.image.height,height,1);portrait.position.x=0;uv.setXY(0,direction>0?0:1,1);uv.setXY(1,direction>0?1:0,1);uv.setXY(2,direction>0?0:1,0);uv.setXY(3,direction>0?1:0,0);}
   this.child.model.position.copy(player.position);this.child.model.scale.y=player.scale.y;
   if(!started)this.child.model.position.set(4,.06,2);
-  this.child.model.rotation.y=Math.atan2(this.camera.position.x-this.child.model.position.x,this.camera.position.z-this.child.model.position.z);
+  this.child.model.rotation.y=0;
   this.contact.position.set(this.child.model.position.x,.067,this.child.model.position.z);this.contact.material.opacity=Math.max(.12,1-Math.max(0,player.position.y-.06)*.65);
   this.canvas.dataset.character='original-knit-cloak';this.canvas.dataset.walkFrame=walking?String(frame):'idle';this.canvas.dataset.facing=direction>0?'right':'left';
-  animate(this.enemy,warden,(warden.userData.walkDistance||0)*5,started,warden.position.x<px?-Math.PI/2:Math.PI/2);this.enemy.model.visible=started;
+  const enemyDirection=warden.position.x<px?1:-1;
+  const enemyFrame=reduced?1:Math.floor((warden.userData.walkDistance||0)*4)%6;
+  const ew=2172/6,eh=608,enemyHeight=2.85,es=enemyHeight/eh,ep=this.enemy.portrait;
+  ep.scale.set(ew*es,enemyHeight,1);ep.position.set(0,enemyHeight/2,0);
+  // The source patrol sheet faces LEFT; the hero sheet faces RIGHT.
+  const a=enemyFrame/6,b=(enemyFrame+1)/6,euv=ep.geometry.attributes.uv;
+  const eu0=enemyDirection>0?b:a,eu1=enemyDirection>0?a:b;
+  euv.setXY(0,eu0,1-74/724);euv.setXY(1,eu1,1-74/724);euv.setXY(2,eu0,1-682/724);euv.setXY(3,eu1,1-682/724);euv.needsUpdate=true;
+  this.enemy.model.position.copy(warden.position);this.enemy.model.rotation.y=0;this.enemy.model.visible=started;
+  this.enemyContact.position.set(warden.position.x,.068,warden.position.z);this.enemyContact.visible=started;
+  this.canvas.dataset.warden='original-long-dress';this.canvas.dataset.wardenFacing=enemyDirection>0?'right':'left';this.canvas.dataset.wardenFrame=String(enemyFrame);this.canvas.dataset.view='shared-side-view';
   for(let i=0;i<3;i++){const done=state.clues[level][i];this.gates[level][i].position.y=done?3:0;this.markers[level][i].material.color.set(done?0x7ee6a5:0xffc568);this.markers[level][i].material.emissive.set(done?0x30a060:0xffa640);}
   this.doors[level].rotation.y=-Math.min(1,doorTime/.95)*Math.PI*.55;this.keys[level].visible=!state.keys[level];this.keys[level].rotation.y=reduced?0:time;
   this.renderer.render(this.scene,this.camera);this.canvas.dataset.renderer='webgl-3d';this.canvas.dataset.drawCalls=this.renderer.info.render.calls;
